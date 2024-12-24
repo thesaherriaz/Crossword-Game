@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Advanced Crossword Game</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Helvetica', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .start-page {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, #191970, #9400D3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .game-button {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: white;
+            border: none;
+            border-radius: 10px;
+            padding: 1rem;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .game-button:hover {
+            transform: scale(1.05);
+        }
+
+        .game-button img {
+            width: 200px;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .game-container {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+            gap: 1rem;
+        }
+
+        .player-info {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 800px;
+            font-size: 1.2rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+            padding: 1rem;
+            background: #f0f0f0;
+            border-radius: 8px;
+        }
+
+        .cell {
+            width: 60px;
+            height: 60px;
+            border: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            background: white;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .cell.revealed {
+            background: #90EE90;
+        }
+
+        .cell.hint {
+            background: #FFD700;
+        }
+
+        .status {
+            color: red;
+            font-size: 1.2rem;
+            margin-top: 1rem;
+        }
+
+        input, button {
+            font-size: 1rem;
+            padding: 0.5rem 1rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        .empty-cell {
+            background: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="start-page" id="startPage">
+        <button class="game-button" onclick="startGame('single')">
+            <img src="/api/placeholder/200/200" alt="Single Player">
+            <span>Single Player</span>
+        </button>
+        <button class="game-button" onclick="startGame('two')">
+            <img src="/api/placeholder/200/200" alt="Two Players">
+            <span>Two Players</span>
+        </button>
+    </div>
+
+    <div class="game-container" id="gameContainer">
+        <div class="player-info">
+            <div id="currentPlayer">Current Player: Player 1</div>
+            <div id="scores">Player 1: 0 | Player 2: 0</div>
+        </div>
+
+        <div class="controls">
+            <input type="text" id="wordInput" placeholder="Enter word...">
+            <button onclick="placeWord()">Place Word</button>
+            <button onclick="getHint()">Hint</button>
+            <button onclick="undoMove()">Undo</button>
+            <button onclick="redoMove()">Redo</button>
+        </div>
+
+        <div class="grid" id="gameGrid"></div>
+        <div class="status" id="statusMessage"></div>
+    </div>
+
+    <script>
+        const validWords = new Set([
+            "HIS", "TOP", "HOW", "STRANGE", "WAR", "USE", "TOO",
+            "TOURISM", "WIN", "INK", "SHE", "KEY", "GAS", "MAY", "WAS", "PIE"
+        ]);
+
+        const wordPositions = {
+            "HIS": [[0, 0], "right"],
+            "TOP": [[0, 4], "right"],
+            "HOW": [[0, 0], "down"],
+            "STRANGE": [[0, 2], "down"],
+            "WAR": [[2, 0], "right"],
+            "USE": [[2, 4], "right"],
+            "TOO": [[1, 4], "right"],
+            "TOURISM": [[0, 4], "down"],
+            "WIN": [[4, 0], "right"],
+            "INK": [[4, 4], "right"],
+            "SHE": [[6, 0], "right"],
+            "GAS": [[5, 2], "right"],
+            "MAY": [[6, 4], "right"],
+            "WAS": [[4, 0], "down"],
+            "PIE": [[0, 6], "down"]
+        };
+
+        const gameState = {
+            mode: null,
+            currentPlayer: 0,
+            players: [
+                { name: "Player 1", score: 0 },
+                { name: "Player 2", score: 0 }
+            ],
+            usedWords: new Set(),
+            moveStack: [],
+            redoStack: [],
+            grid: Array(7).fill().map(() => Array(7).fill("")),
+            hiddenGrid: [
+                ['H', 'I', 'S', ' ', 'T', 'O', 'P'],
+                ['O', ' ', 'T', 'O', 'O', ' ', 'I'],
+                ['W', 'A', 'R', ' ', 'U', 'S', 'E'],
+                [' ', ' ', 'A', ' ', 'R', ' ', ' '],
+                ['W', 'I', 'N', ' ', 'I', 'N', 'K'],
+                ['A', ' ', 'G', 'A', 'S', ' ', 'E'],
+                ['S', 'H', 'E', ' ', 'M', 'A', 'Y']
+            ]
+        };
+
+        function startGame(mode) {
+            gameState.mode = mode;
+            document.getElementById('startPage').style.display = 'none';
+            document.getElementById('gameContainer').style.display = 'flex';
+            initializeGrid();
+            updateUI();
+        }
+
+        function initializeGrid() {
+            const grid = document.getElementById('gameGrid');
+            grid.innerHTML = '';
+            
+            for (let i = 0; i < 7; i++) {
+                for (let j = 0; j < 7; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.row = i;
+                    cell.dataset.col = j;
+                    if (gameState.hiddenGrid[i][j] === ' ') {
+                        cell.classList.add('empty-cell');
+                    }
+                    grid.appendChild(cell);
+                }
+            }
+        }
+
+        function placeWord() {
+            const word = document.getElementById('wordInput').value.trim().toUpperCase();
+            if (!word) {
+                showStatus("Please enter a word.");
+                return;
+            }
+
+            if (gameState.usedWords.has(word)) {
+                showStatus("This word has already been used!");
+                return;
+            }
+
+            if (!validWords.has(word)) {
+                showStatus("Invalid word!");
+                return;
+            }
+
+            const position = wordPositions[word];
+            if (position) {
+                const [start, direction] = position;
+                const [row, col] = start;
+                
+                // Store move for undo
+                const move = {
+                    word,
+                    position: start,
+                    direction,
+                    cells: []
+                };
+
+                // Place the word
+                for (let i = 0; i < word.length; i++) {
+                    const cell = direction === "right" 
+                        ? document.querySelector([data-row="${row}"][data-col="${col + i}"])
+                        : document.querySelector([data-row="${row + i}"][data-col="${col}"]);
+                    
+                    move.cells.push({
+                        row: direction === "right" ? row : row + i,
+                        col: direction === "right" ? col + i : col,
+                        previousValue: cell.textContent
+                    });
+
+                    cell.textContent = word[i];
+                    cell.classList.add('revealed');
+                }
+
+                gameState.moveStack.push(move);
+                gameState.redoStack = [];
+                gameState.usedWords.add(word);
+                gameState.players[gameState.currentPlayer].score += word.length;
+                
+                showStatus('${word}' placed successfully!);
+                document.getElementById('wordInput').value = '';
+                
+                if (gameState.mode === 'two') {
+                    gameState.currentPlayer = 1 - gameState.currentPlayer;
+                }
+                
+                updateUI();
+            } else {
+                showStatus("Word not found in the grid!");
+            }
+        }
+
+        function undoMove() {
+            if (gameState.moveStack.length === 0) {
+                showStatus("No moves to undo!");
+                return;
+            }
+
+            const move = gameState.moveStack.pop();
+            gameState.redoStack.push(move);
+            
+            // Restore previous state
+            move.cells.forEach(({row, col, previousValue}) => {
+                const cell = document.querySelector([data-row="${row}"][data-col="${col}"]);
+                cell.textContent = previousValue;
+                cell.classList.remove('revealed');
+            });
+
+            gameState.usedWords.delete(move.word);
+            gameState.players[gameState.currentPlayer].score -= move.word.length;
+            
+            if (gameState.mode === 'two') {
+                gameState.currentPlayer = 1 - gameState.currentPlayer;
+            }
+            
+            updateUI();
+            showStatus(Undid placement of '${move.word}');
+        }
+
+        function redoMove() {
+            if (gameState.redoStack.length === 0) {
+                showStatus("No moves to redo!");
+                return;
+            }
+
+            const move = gameState.redoStack.pop();
+            gameState.moveStack.push(move);
+            
+            // Reapply the move
+            const [row, col] = move.position;
+            for (let i = 0; i < move.word.length; i++) {
+                const cell = move.direction === "right"
+                    ? document.querySelector([data-row="${row}"][data-col="${col + i}"])
+                    : document.querySelector([data-row="${row + i}"][data-col="${col}"]);
+                
+                cell.textContent = move.word[i];
+                cell.classList.add('revealed');
+            }
+
+            gameState.usedWords.add(move.word);
+            gameState.players[gameState.currentPlayer].score += move.word.length;
+            
+            if (gameState.mode === 'two') {
+                gameState.currentPlayer = 1 - gameState.currentPlayer;
+            }
+            
+            updateUI();
+            showStatus(Redid placement of '${move.word}');
+        }
+
+        function getHint() {
+            const availableWords = Array.from(validWords).filter(word => !gameState.usedWords.has(word));
+            if (availableWords.length === 0) {
+                showStatus("No more words available!");
+                return;
+            }
+
+            const randomWord = availableWords[Math.floor(Math.random() * availableWords.length)];
+            const [start, direction] = wordPositions[randomWord];
+            const [row, col] = start;
+
+            // Show first letter as hint
+            const hintCell = document.querySelector([data-row="${row}"][data-col="${col}"]);
+            hintCell.textContent = randomWord[0];
+            hintCell.classList.add('hint');
+
+            showStatus(Hint: First letter of a ${randomWord.length}-letter word);
+        }
+
+        function updateUI() {
+            document.getElementById('currentPlayer').textContent = 
+                Current Player: ${gameState.players[gameState.currentPlayer].name};
+            
+            document.getElementById('scores').textContent = 
+                gameState.players.map(p => ${p.name}: ${p.score}).join(' | ');
+        }
+
+        function showStatus(message) {
+            document.getElementById('statusMessage').textContent = message;
+        }
+    </script>
+</body>
+</html>
